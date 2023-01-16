@@ -108,7 +108,7 @@ class BaseDetector(object):
         images = pre_processed_images['images'][scale][0]
         meta = pre_processed_images['meta'][scale]
         meta = {k: v.numpy()[0] for k, v in meta.items()}
-      images = images.to(self.opt.device)
+      images = images.to(self.opt.device) # images哪里来的，就是前面pre_process之后的图片
       torch.cuda.synchronize()
       pre_process_time = time.time()
       pre_time += pre_process_time - scale_start_time
@@ -121,7 +121,7 @@ class BaseDetector(object):
       dec_time += decode_time - forward_time
       
       if self.opt.debug >= 2:
-        self.debug(debugger, images, dets, output, scale)
+        self.debug(debugger, images, dets, output, scale) # debug接受的是pre_precoess后的图片
       
       dets = self.post_process(dets, meta, scale)
       torch.cuda.synchronize()

@@ -73,11 +73,11 @@ class CtdetDetector(BaseDetector):
     return results
 
   def debug(self, debugger, images, dets, output, scale=1):
-    detection = dets.detach().cpu().numpy().copy()
-    detection[:, :, :4] *= self.opt.down_ratio
+    detection = dets.detach().cpu().numpy().copy() # 把检测结果变成numpy形式
+    detection[:, :, :4] *= self.opt.down_ratio # detection中的结果都乘上降采样率
     for i in range(1):
       img = images[i].detach().cpu().numpy().transpose(1, 2, 0)
-      img = ((img * self.std + self.mean) * 255).astype(np.uint8)
+      img = ((img * self.std + self.mean) * 255).astype(np.uint8) # 还原回原始的单通道图片
       pred = debugger.gen_colormap(output['hm'][i].detach().cpu().numpy())
       debugger.add_blend_img(img, pred, 'pred_hm_{:.1f}'.format(scale))
       debugger.add_img(img, img_id='out_pred_{:.1f}'.format(scale))
@@ -91,6 +91,6 @@ class CtdetDetector(BaseDetector):
     debugger.add_img(image, img_id='ctdet')
     for j in range(1, self.num_classes + 1):
       for bbox in results[j]:
-        if bbox[4] > self.opt.vis_thresh:
+        if bbox[4] > self.opt.vis_thresh: # 这里是有个执行都的，只有heatmap的confidence大于0.3才作为最终输出
           debugger.add_coco_bbox(bbox[:4], j - 1, bbox[4], img_id='ctdet')
     debugger.show_all_imgs(pause=self.pause)

@@ -28,14 +28,28 @@ class CTDetDataset(data.Dataset):
 
   def __getitem__(self, index):
     img_id = self.images[index]
-    file_name = self.coco.loadImgs(ids=[img_id])[0]['file_name']
+    file_name = self.coco.loadImgs(ids=[img_id])[0]['file_name'] # 这里明显就是去利用filename来找相应的mask
     img_path = os.path.join(self.img_dir, file_name)
+    #xly
+    if 'cdnet' in self.opt.dataset:
+      seg_path = os.path.join(self.img_dir, 'fg')
+      seg_path = os.path.join(seg_path,
+                              os.path.dirname(file_name).split('/')[-1],
+                              os.path.basename(file_name).replace('jpg', 'png'))
+    else:
+      seg_path = os.path.join('/store/datasets/UA-Detrac/pyflow-bgsubs',
+                              os.path.dirname(file_name).split('/')[-1],
+                              os.path.basename(file_name).replace('jpg', 'png'))
     ann_ids = self.coco.getAnnIds(imgIds=[img_id])
     anns = self.coco.loadAnns(ids=ann_ids)
     num_objs = min(len(anns), self.max_objs)
 
+    seg_img = cv2.imread(seg_path, 0)  # hughes
     img = cv2.imread(img_path)
+    # print("IMG_SHAPE: ", img.shape, " MEAN: ", np.mean(img))
+    # cv2.imwrite(os.path.join("/store/datasets/UA-Detrac/COCO-format/img_tests/", os.path.basename(file_name)), img)
 
+    # 图像分辨率上的操作 s -> scale
     height, width = img.shape[0], img.shape[1]
     c = np.array([img.shape[1] / 2., img.shape[0] / 2.], dtype=np.float32)
     if self.opt.keep_res:
@@ -45,7 +59,7 @@ class CTDetDataset(data.Dataset):
     else:
       s = max(img.shape[0], img.shape[1]) * 1.0
       input_h, input_w = self.opt.input_h, self.opt.input_w
-    
+
     flipped = False
     if self.split == 'train':
       if not self.opt.not_rand_crop:
@@ -60,23 +74,38 @@ class CTDetDataset(data.Dataset):
         c[0] += s * np.clip(np.random.randn()*cf, -2*cf, 2*cf)
         c[1] += s * np.clip(np.random.randn()*cf, -2*cf, 2*cf)
         s = s * np.clip(np.random.randn()*sf + 1, 1 - sf, 1 + sf)
-      
+
       if np.random.random() < self.opt.flip:
         flipped = True
         img = img[:, ::-1, :]
+        seg_img = seg_img[:, ::-1]
+        # cv2.imwrite(os.path.join("/store/datasets/UA-Detrac/COCO-format/img_tests/", "inp_" + os.path.basename(file_name)), img)
+        # cv2.imwrite(os.path.join("/store/datasets/UA-Detrac/COCO-format/img_tests/", "inp_" + os.path.basename(file_name)).replace('.jpg', '_seg.jpg'), seg_img)
         c[0] =  width - c[0] - 1
-        
+
 
     trans_input = get_affine_transform(
       c, s, 0, [input_w, input_h])
-    inp = cv2.warpAffine(img, trans_input, 
+    # print('TRANS INPUT SHAPE: ', trans_input.shape)
+    inp = cv2.warpAffine(img, trans_input,
                          (input_w, input_h),
                          flags=cv2.INTER_LINEAR)
+    seg_inp = cv2.warpAffine(seg_img, trans_input,
+                            (input_w, input_h),
+                            flags=cv2.INTER_LINEAR)
     inp = (inp.astype(np.float32) / 255.)
+
+    seg_inp = (seg_inp.astype(np.float32) / 255.) # hughes
     if self.split == 'train' and not self.opt.no_color_aug:
       color_aug(self._data_rng, inp, self._eig_val, self._eig_vec)
+
+
+    # cv2.imwrite(os.path.join("/store/datasets/UA-Detrac/COCO-format/img_tests/", "inp_" + os.path.basename(file_name)), inp)
+    # cv2.imwrite(os.path.join("/store/datasets/UA-Detrac/COCO-format/img_tests/", "inp_" + os.path.basename(file_name)).replace('.jpg', '_seg.jpg'), seg_inp)
+
     inp = (inp - self.mean) / self.std
     inp = inp.transpose(2, 0, 1)
+    # print('MEAN: ', np.average(seg_inp))
 
     output_h = input_h // self.opt.down_ratio
     output_w = input_w // self.opt.down_ratio
@@ -91,7 +120,7 @@ class CTDetDataset(data.Dataset):
     reg_mask = np.zeros((self.max_objs), dtype=np.uint8)
     cat_spec_wh = np.zeros((self.max_objs, num_classes * 2), dtype=np.float32)
     cat_spec_mask = np.zeros((self.max_objs, num_classes * 2), dtype=np.uint8)
-    
+
     draw_gaussian = draw_msra_gaussian if self.opt.mse_loss else \
                     draw_umich_gaussian
 
@@ -123,10 +152,16 @@ class CTDetDataset(data.Dataset):
         cat_spec_mask[k, cls_id * 2: cls_id * 2 + 2] = 1
         if self.opt.dense_wh:
           draw_dense_reg(dense_wh, hm.max(axis=0), ct_int, wh[k], radius)
-        gt_det.append([ct[0] - w / 2, ct[1] - h / 2, 
+        gt_det.append([ct[0] - w / 2, ct[1] - h / 2,
                        ct[0] + w / 2, ct[1] + h / 2, 1, cls_id])
-    
-    ret = {'input': inp, 'hm': hm, 'reg_mask': reg_mask, 'ind': ind, 'wh': wh}
+
+
+    # seg_inp = seg_inp[np.newaxis, :]
+    # inp = np.concatenate((inp, seg_inp), axis=0)
+
+    inp += seg_inp
+
+    ret = {'input': inp, 'hm': hm, 'reg_mask': reg_mask, 'ind': ind, 'wh': wh, 'seg': np.expand_dims(seg_inp, 0)}
     if self.opt.dense_wh:
       hm_a = hm.max(axis=0, keepdims=True)
       dense_wh_mask = np.concatenate([hm_a, hm_a], axis=0)
@@ -142,4 +177,8 @@ class CTDetDataset(data.Dataset):
                np.zeros((1, 6), dtype=np.float32)
       meta = {'c': c, 's': s, 'gt_det': gt_det, 'img_id': img_id}
       ret['meta'] = meta
+
+    # cv2.imwrite(os.path.join("/store/datasets/UA-Detrac/COCO-format/img_tests/", "inp_" + os.path.basename(file_name)), (inp.transpose(1, 2, 0)* 255).astype(np.uint8))
+    # cv2.imwrite(os.path.join("/store/datasets/UA-Detrac/COCO-format/img_tests/", "inp_" + os.path.basename(file_name)).replace('.jpg', '_seg.jpg'), (seg_inp * 255).astype(np.uint8))
+
     return ret

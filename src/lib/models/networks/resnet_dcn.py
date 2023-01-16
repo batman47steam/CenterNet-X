@@ -34,7 +34,8 @@ def conv3x3(in_planes, out_planes, stride=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
                      padding=1, bias=False)
 
-
+# BasicBlock的expansion为1
+# expansion表示的是输出与输入的通道数之比
 class BasicBlock(nn.Module):
     expansion = 1
 
@@ -135,7 +136,7 @@ class PoseResNet(nn.Module):
         self.deconv_with_bias = False
 
         super(PoseResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,  # 固定了输入的通道数为3
                                bias=False)
         self.bn1 = nn.BatchNorm2d(64, momentum=BN_MOMENTUM)
         self.relu = nn.ReLU(inplace=True)
@@ -154,7 +155,7 @@ class PoseResNet(nn.Module):
 
         for head in self.heads:
             classes = self.heads[head]
-            if head_conv > 0:
+            if head_conv > 0:  # 构建每个head分支，heatmap， wh， reg / head_conv决定的是中间的通道数
                 fc = nn.Sequential(
                   nn.Conv2d(64, head_conv,
                     kernel_size=3, padding=1, bias=True),
@@ -163,7 +164,7 @@ class PoseResNet(nn.Module):
                     kernel_size=1, stride=1, 
                     padding=0, bias=True))
                 if 'hm' in head:
-                    fc[-1].bias.data.fill_(-2.19)
+                    fc[-1].bias.data.fill_(-2.19) # heatmap的初始化还有点不同
                 else:
                     fill_fc_weights(fc)
             else:
@@ -178,8 +179,8 @@ class PoseResNet(nn.Module):
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(
+        if stride != 1 or self.inplanes != planes * block.expansion: # 如果stride不为1，并且输入和输出通道数不相等
+            downsample = nn.Sequential( # 这里是一个1x1的卷积，但是如果stride = 2肯定会改变输出的尺寸吧
                 nn.Conv2d(self.inplanes, planes * block.expansion,
                           kernel_size=1, stride=stride, bias=False),
                 nn.BatchNorm2d(planes * block.expansion, momentum=BN_MOMENTUM),
@@ -256,7 +257,7 @@ class PoseResNet(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
 
-        x = self.deconv_layers(x)
+        x = self.deconv_layers(x) # 去看论文里面的结构图，上采用的部分用的是DCN
         ret = {}
         for head in self.heads:
             ret[head] = self.__getattr__(head)(x)
@@ -268,7 +269,7 @@ class PoseResNet(nn.Module):
             pretrained_state_dict = model_zoo.load_url(url)
             print('=> loading pretrained model {}'.format(url))
             self.load_state_dict(pretrained_state_dict, strict=False)
-            print('=> init deconv weights from normal distribution')
+            print('=> init deconv weights from normal distribution') # deconv的权重好像就是简单的均一分布
             for name, m in self.deconv_layers.named_modules():
                 if isinstance(m, nn.BatchNorm2d):
                     nn.init.constant_(m.weight, 1)
@@ -281,7 +282,7 @@ resnet_spec = {18: (BasicBlock, [2, 2, 2, 2]),
                101: (Bottleneck, [3, 4, 23, 3]),
                152: (Bottleneck, [3, 8, 36, 3])}
 
-
+# block class是对应这basic block和bottleneck block
 def get_pose_net(num_layers, heads, head_conv=256):
   block_class, layers = resnet_spec[num_layers]
 
