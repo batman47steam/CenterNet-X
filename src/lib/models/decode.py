@@ -491,8 +491,9 @@ def ctdet_decode(heat, wh, reg=None, cat_spec_wh=False, K=100):
                         xs + wh[..., 0:1] / 2, 
                         ys + wh[..., 1:2] / 2], dim=2)
     detections = torch.cat([bboxes, scores, clses], dim=2)
+    centers = torch.cat((xs,ys), dim=2)
       
-    return detections
+    return detections, centers, wh
 
 def multi_pose_decode(
     heat, wh, kps, reg=None, hm_hp=None, hp_offset=None, K=100):

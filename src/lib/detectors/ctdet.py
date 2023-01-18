@@ -37,12 +37,12 @@ class CtdetDetector(BaseDetector):
         reg = reg[0:1] if reg is not None else None
       torch.cuda.synchronize()
       forward_time = time.time()
-      dets = ctdet_decode(hm, wh, reg=reg, cat_spec_wh=self.opt.cat_spec_wh, K=self.opt.K)
+      dets, centers, wh = ctdet_decode(hm, wh, reg=reg, cat_spec_wh=self.opt.cat_spec_wh, K=self.opt.K)
       
     if return_time:
-      return output, dets, forward_time
+      return output, dets, forward_time, centers, wh
     else:
-      return output, dets
+      return output, dets, centers, wh
 
   def post_process(self, dets, meta, scale=1):
     dets = dets.detach().cpu().numpy()
@@ -72,9 +72,10 @@ class CtdetDetector(BaseDetector):
         results[j] = results[j][keep_inds]
     return results
 
+  # det的结果对应的尺度还是四倍降采样的
   def debug(self, debugger, images, dets, output, scale=1):
     detection = dets.detach().cpu().numpy().copy() # 把检测结果变成numpy形式
-    detection[:, :, :4] *= self.opt.down_ratio # detection中的结果都乘上降采样率
+    detection[:, :, :4] *= self.opt.down_ratio # detection中的结果都乘上降采样率，前四维是boudning box的坐标，后面是置信度和类别
     for i in range(1):
       img = images[i].detach().cpu().numpy().transpose(1, 2, 0)
       img = ((img * self.std + self.mean) * 255).astype(np.uint8) # 还原回原始的单通道图片
